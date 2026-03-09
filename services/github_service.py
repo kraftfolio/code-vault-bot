@@ -59,42 +59,57 @@ async def fetch_repo_metadata(owner: str, repo: str) -> dict | None:
 
 async def clone_and_zip(owner: str, repo: str) -> Path | None:
     """
-    Clone a public GitHub repo into a temp dir, zip it, then
-    move the zip into FILES_DIR.
-    Requires ``git`` on the host.
+    Download a public GitHub repo as a ZIP via the GitHub API,
+    then re-package it with a clean folder structure into FILES_DIR.
+    No ``git`` CLI required.
     """
-    clone_url = f"https://github.com/{owner}/{repo}.git"
+    zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
     tmp_dir = Path(tempfile.mkdtemp())
 
     try:
-        # Shallow clone via subprocess (non-blocking)
-        proc = await asyncio.create_subprocess_exec(
-            "git", "clone", "--depth=1", clone_url, str(tmp_dir / repo),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
-        if proc.returncode != 0:
-            logger.error("git clone failed: %s", stderr.decode())
-            return None
+        # Download the ZIP archive from GitHub API
+        async with aiohttp.ClientSession() as cs:
+            async with cs.get(
+                zip_url,
+                timeout=aiohttp.ClientTimeout(total=120),
+                headers={"Accept": "application/vnd.github+json"},
+                allow_redirects=True,
+            ) as resp:
+                if resp.status != 200:
+                    logger.error(
+                        "GitHub ZIP download failed (HTTP %s) for %s/%s",
+                        resp.status, owner, repo,
+                    )
+                    return None
 
-        # Zip the cloned dir
+                # Stream to a temp file
+                tmp_zip = tmp_dir / "download.zip"
+                with open(tmp_zip, "wb") as f:
+                    async for chunk in resp.content.iter_chunked(8192):
+                        f.write(chunk)
+
+        # Extract, then re-zip with a clean directory name
+        extract_dir = tmp_dir / "extracted"
+        with zipfile.ZipFile(tmp_zip, "r") as zf:
+            zf.extractall(extract_dir)
+
+        # GitHub wraps everything in a folder like "owner-repo-sha/"
+        top_dirs = list(extract_dir.iterdir())
+        repo_dir = top_dirs[0] if len(top_dirs) == 1 and top_dirs[0].is_dir() else extract_dir
+
         settings.FILES_DIR.mkdir(parents=True, exist_ok=True)
         zip_name = f"{uuid.uuid4().hex[:8]}_{repo}.zip"
         zip_path = settings.FILES_DIR / zip_name
 
-        repo_dir = tmp_dir / repo
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for file in repo_dir.rglob("*"):
-                if ".git" in file.parts:
-                    continue
                 if file.is_file():
                     zf.write(file, file.relative_to(repo_dir))
 
         return zip_path
 
     except asyncio.TimeoutError:
-        logger.error("Git clone timed out for %s/%s", owner, repo)
+        logger.error("GitHub ZIP download timed out for %s/%s", owner, repo)
         return None
     except Exception as exc:
         logger.error("clone_and_zip error: %s", exc)
