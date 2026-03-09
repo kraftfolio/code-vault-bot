@@ -65,6 +65,8 @@ async def clone_and_zip(owner: str, repo: str) -> Path | None:
     """
     zip_url = f"https://api.github.com/repos/{owner}/{repo}/zipball"
     tmp_dir = Path(tempfile.mkdtemp())
+    logger.info("[clone_and_zip] Starting download for %s/%s from %s", owner, repo, zip_url)
+    print(f"[DEBUG] clone_and_zip: downloading {zip_url}")
 
     try:
         # Download the ZIP archive from GitHub API
@@ -75,11 +77,15 @@ async def clone_and_zip(owner: str, repo: str) -> Path | None:
                 headers={"Accept": "application/vnd.github+json"},
                 allow_redirects=True,
             ) as resp:
+                logger.info("[clone_and_zip] Response status: %s", resp.status)
+                print(f"[DEBUG] clone_and_zip: response status = {resp.status}")
                 if resp.status != 200:
+                    body = await resp.text()
                     logger.error(
-                        "GitHub ZIP download failed (HTTP %s) for %s/%s",
-                        resp.status, owner, repo,
+                        "GitHub ZIP download failed (HTTP %s) for %s/%s — body: %s",
+                        resp.status, owner, repo, body[:500],
                     )
+                    print(f"[DEBUG] clone_and_zip FAILED: HTTP {resp.status}, body={body[:500]}")
                     return None
 
                 # Stream to a temp file
@@ -87,6 +93,7 @@ async def clone_and_zip(owner: str, repo: str) -> Path | None:
                 with open(tmp_zip, "wb") as f:
                     async for chunk in resp.content.iter_chunked(8192):
                         f.write(chunk)
+                print(f"[DEBUG] clone_and_zip: downloaded {tmp_zip.stat().st_size} bytes")
 
         # Extract, then re-zip with a clean directory name
         extract_dir = tmp_dir / "extracted"
@@ -106,13 +113,16 @@ async def clone_and_zip(owner: str, repo: str) -> Path | None:
                 if file.is_file():
                     zf.write(file, file.relative_to(repo_dir))
 
+        logger.info("[clone_and_zip] Success! ZIP at %s (%d bytes)", zip_path, zip_path.stat().st_size)
+        print(f"[DEBUG] clone_and_zip: SUCCESS -> {zip_path}")
         return zip_path
 
     except asyncio.TimeoutError:
         logger.error("GitHub ZIP download timed out for %s/%s", owner, repo)
         return None
     except Exception as exc:
-        logger.error("clone_and_zip error: %s", exc)
+        logger.error("clone_and_zip error: %s", exc, exc_info=True)
+        print(f"[DEBUG] clone_and_zip EXCEPTION: {exc}")
         return None
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)

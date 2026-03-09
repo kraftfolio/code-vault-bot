@@ -66,8 +66,8 @@ async def on_github_url(message: Message, is_admin: bool, state: FSMContext, ses
     if not zip_path:
         await state.clear()
         await message.answer(
-            "❌ Failed to clone the repository.\n\n"
-            "Make sure <code>git</code> is installed and the repo is public.",
+            "❌ Failed to download the repository.\n\n"
+            "Make sure the repo is <b>public</b> and the URL is correct.",
             reply_markup=back_to_dashboard_kb(),
             parse_mode="HTML",
         )
