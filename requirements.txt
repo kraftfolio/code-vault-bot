@@ -1,0 +1,10 @@
+aiogram==3.13.1
+SQLAlchemy==2.0.36
+aiosqlite==0.20.0
+aiofiles==24.1.0
+python-dotenv==1.0.1
+Pygments==2.18.0
+GitPython==3.1.43
+openai==1.55.3
+aiohttp==3.10.11
+greenlet==3.1.1
