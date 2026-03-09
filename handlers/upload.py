@@ -49,7 +49,8 @@ async def cb_upload_start(cb: CallbackQuery, is_admin: bool, state: FSMContext, 
     await state.set_state(UploadStates.waiting_file)
     await cb.message.edit_text(
         f"{SEP}\n📤 <b>Upload Project</b>\n{SEP}\n\n"
-        f"Send me a <b>.zip</b> file (max {settings.MAX_FILE_SIZE_MB} MB).",
+        f"Send me a <b>.zip</b> file (max 20 MB).\n\n"
+        f"<i>⚠️ Telegram limits bot downloads to 20 MB.</i>",
         parse_mode="HTML",
     )
     await cb.answer()
@@ -67,6 +68,17 @@ async def on_file_received(message: Message, is_admin: bool, state: FSMContext, 
         await message.answer("❌ Please send a <b>.zip</b> file.", parse_mode="HTML")
         return
 
+    # Telegram Bot API hard limit: 20 MB for getFile
+    max_download = 20 * 1024 * 1024
+    if doc.file_size and doc.file_size > max_download:
+        await message.answer(
+            "❌ File is too large.\n\n"
+            "Telegram Bot API limits downloads to <b>20 MB</b>.\n"
+            "Please compress your project further or split it.",
+            parse_mode="HTML",
+        )
+        return
+
     if not validate_file_size(doc.file_size):
         await message.answer(
             f"❌ File is too large. Max size: <b>{settings.MAX_FILE_SIZE_MB} MB</b>.",
@@ -74,14 +86,13 @@ async def on_file_received(message: Message, is_admin: bool, state: FSMContext, 
         )
         return
 
-    await message.answer("⏳ Downloading file…")
+    await message.answer("⏳ Downloading file… (this may take a moment)")
 
-    # Download file content
-    from aiogram import Bot
-    bot: Bot = message.bot
-    file = await bot.get_file(doc.file_id)
-    file_bytes = await bot.download_file(file.file_path)
-    content = file_bytes.read()
+    # Stream download via bot.download()
+    from io import BytesIO
+    buf = BytesIO()
+    await message.bot.download(doc, destination=buf)
+    content = buf.getvalue()
 
     # Save to disk
     relative_path = await save_uploaded_file(content, doc.file_name)
