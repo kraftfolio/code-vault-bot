@@ -30,7 +30,7 @@ _GH_PATTERN = re.compile(
 
 def parse_github_url(url: str) -> tuple[str, str] | None:
     """Extract (owner, repo) from a GitHub URL. Returns None on failure."""
-    m = _GH_PATTERN.search(url.strip().rstrip("/").rstrip(".git"))
+    m = _GH_PATTERN.search(url.strip().rstrip("/").removesuffix(".git"))
     if m:
         return m.group(1), m.group(2).removesuffix(".git")
     return None
